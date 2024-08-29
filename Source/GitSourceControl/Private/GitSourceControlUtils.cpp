@@ -726,7 +726,7 @@ bool GetRemoteBranchesWildcard(const FString& InPathToGitBinary, const FString& 
 	TArray<FString> InfoMessages;
 	TArray<FString> ErrorMessages;
 	TArray<FString> Parameters;
-	Parameters.Add(TEXT("--remotes"));
+	Parameters.Add(TEXT("-a"));
 	Parameters.Add(TEXT("--list"));
 	bool bResults = RunCommand(TEXT("branch"), InPathToGitBinary, InRepositoryRoot, Parameters, { PatternMatch },
 								InfoMessages, ErrorMessages);
