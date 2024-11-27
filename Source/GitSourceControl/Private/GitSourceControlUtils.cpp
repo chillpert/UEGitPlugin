@@ -965,16 +965,18 @@ R  Content/Textures/T_Perlin_Noise_M.uasset -> Content/Textures/T_Perlin_Noise_M
 static FString FilenameFromGitStatus(const FString& InResult)
 {
 	int32 RenameIndex;
+	FString Result;
 	if (InResult.FindLastChar('>', RenameIndex))
 	{
 		// Extract only the second part of a rename "from -> to"
-		return InResult.RightChop(RenameIndex + 2);
+		Result = InResult.RightChop(RenameIndex + 2);
 	}
 	else
 	{
 		// Extract the relative filename from the Git status result (after the 2 letters status and 1 space)
-		return InResult.RightChop(3);
+		Result = InResult.RightChop(3);
 	}
+	return Result.TrimQuotes();
 }
 
 /** Match the relative filename of a Git status result with a provided absolute filename */
@@ -1838,13 +1840,20 @@ bool RunDumpToFile(const FString& InPathToGitBinary, const FString& InRepository
 			FPlatformProcess::ReadPipeToArray(PipeRead, BinaryData);
 			if (BinaryData.Num() > 0)
 			{
-				// @todo: this is hacky!
-				if (BinaryData[0] == 68) // Check for D in "Downloading"
+				if (GitSourceControl.AccessSettings().IsUsingGitLfsLocking())
 				{
-					if (BinaryData[BinaryData.Num() - 1] == 10) // Check for newline
+					// @todo: this is hacky!
+					if (BinaryData[0] == 68) // Check for D in "Downloading"
 					{
-						BinaryData.Reset();
-						bRemovedLFSMessage = true;
+						if (BinaryData[BinaryData.Num() - 1] == 10) // Check for newline
+						{
+							BinaryData.Reset();
+							bRemovedLFSMessage = true;
+						}
+					}
+					else
+					{
+						BinaryFileContent.Append(MoveTemp(BinaryData));
 					}
 				}
 				else
@@ -1857,21 +1866,28 @@ bool RunDumpToFile(const FString& InPathToGitBinary, const FString& InRepository
 		FPlatformProcess::ReadPipeToArray(PipeRead, BinaryData);
 		if (BinaryData.Num() > 0)
 		{
-			// @todo: this is hacky!
-			if (!bRemovedLFSMessage && BinaryData[0] == 68) // Check for D in "Downloading"
+			if (GitSourceControl.AccessSettings().IsUsingGitLfsLocking())
 			{
-				int32 NewLineIndex = 0;
-				for (int32 Index = 0; Index < BinaryData.Num(); Index++)
+				// @todo: this is hacky!
+				if (!bRemovedLFSMessage && BinaryData[0] == 68) // Check for D in "Downloading"
 				{
-					if (BinaryData[Index] == 10) // Check for newline
+					int32 NewLineIndex = 0;
+					for (int32 Index = 0; Index < BinaryData.Num(); Index++)
 					{
-						NewLineIndex = Index;
-						break;
+						if (BinaryData[Index] == 10) // Check for newline
+						{
+							NewLineIndex = Index;
+							break;
+						}
+					}
+					if (NewLineIndex > 0)
+					{
+						BinaryData.RemoveAt(0, NewLineIndex + 1);
 					}
 				}
-				if (NewLineIndex > 0)
+				else
 				{
-					BinaryData.RemoveAt(0, NewLineIndex + 1);
+					BinaryFileContent.Append(MoveTemp(BinaryData));
 				}
 			}
 			else
@@ -2355,7 +2371,7 @@ bool CheckLFSLockable(const FString& InPathToGitBinary, const FString& InReposit
 	for (int i = 0; i < InFiles.Num(); i++)
 	{
 		const FString& Result = Results[i];
-		if (Result.EndsWith("set"))
+		if (Result.EndsWith("set") && !Result.EndsWith("unset"))
 		{
 			const FString FileExt = InFiles[i].RightChop(1); // Remove wildcard (*)
 			LockableTypes.Add(FileExt);
